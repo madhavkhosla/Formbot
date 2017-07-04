@@ -1,12 +1,13 @@
 package main
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 
-	"bufio"
-
+	"github.com/eawsy/aws-lambda-go/service/lambda/runtime"
 	"github.com/nlopes/slack"
 )
 
@@ -18,8 +19,15 @@ type FormBotClient struct {
 	ev  *slack.MessageEvent
 }
 
-func main() {
+func init() {
+	runtime.HandleFunc(OAuth)
+}
 
+func OAuth(evt json.RawMessage, ctx *runtime.Context) (interface{}, error) {
+	return "Hello, World1!", nil
+}
+
+func main() {
 	token := os.Getenv("SLACK_TOKEN")
 	api := slack.New(token)
 	rtm := api.NewRTM()
@@ -44,20 +52,20 @@ Loop:
 				info := rtm.GetInfo()
 				prefix := fmt.Sprintf("<@%s>", info.User.ID)
 
-				// Audit bot help commands
+				// Form bot help commands
 				if ev.User != info.User.ID && (ev.Text == prefix || ev.Text == fmt.Sprintf("%s help", prefix)) {
 					postMessgeParameters := slack.NewPostMessageParameters()
 					postMessgeParameters.Attachments = []slack.Attachment{
 						{
 							Title: "Command to start new intake form",
-							Text:  "@auditbot create [EID]",
+							Text:  "@formbot create [EID]",
 							Color: "#7CD197",
 						},
 					}
-					rtm.PostMessage(ev.Channel, fmt.Sprintf("Auditbot help commands"), postMessgeParameters)
+					rtm.PostMessage(ev.Channel, fmt.Sprintf("Formbot help commands"), postMessgeParameters)
 				}
 
-				// Audit bot start commands
+				// Form bot start commands
 				if ev.User != info.User.ID && strings.HasPrefix(ev.Text, fmt.Sprintf("%s create", prefix)) {
 					inputStringLength := strings.Split(ev.Text, " ")
 
@@ -114,6 +122,7 @@ func (f FormBotClient) sendQuestions(c chan int) {
 			formbot = false
 			close(c)
 			postMessgeParameters := slack.NewPostMessageParameters()
+			postMessgeParameters.AsUser = true
 			postMessgeParameters.Attachments = []slack.Attachment{
 				{
 					Title: "Do you want to submit the intake form",
@@ -126,6 +135,7 @@ func (f FormBotClient) sendQuestions(c chan int) {
 							Value: "submit",
 						},
 					},
+					CallbackID: "callbackId",
 				},
 			}
 			f.rtm.PostMessage(f.ev.Channel, "", postMessgeParameters)
