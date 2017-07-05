@@ -7,16 +7,34 @@ import (
 	"os"
 	"strings"
 
+	"io/ioutil"
+
 	"github.com/eawsy/aws-lambda-go/service/lambda/runtime"
 	"github.com/nlopes/slack"
 )
 
 var questions = []string{"q1", "q2", "q3", "q4"}
 var formbot bool = false
+var Eid string
+
+type Header struct {
+	ContentType string `json:"Content-Type"`
+}
+
+type SlackResponse struct {
+	StatusCode int    `json:"statusCode"`
+	Headers    Header `json:"headers"`
+	Body       string `json:"body"`
+}
 
 type FormBotClient struct {
 	rtm *slack.RTM
 	ev  *slack.MessageEvent
+}
+
+type Set struct {
+	Question string
+	Answer   string
 }
 
 func init() {
@@ -24,7 +42,34 @@ func init() {
 }
 
 func OAuth(evt json.RawMessage, ctx *runtime.Context) (interface{}, error) {
-	return "Hello, World1!", nil
+	var user map[string]string
+
+	json.Unmarshal(evt, &user)
+	text := GetStringInBetween(user["body"], "FS", "FE")
+	answers := strings.Split(text, "+")
+	showOutput := make([]Set, 0, len(questions))
+	for i := 0; i < len(questions); i++ {
+		showOutput = append(showOutput, Set{Question: questions[i], Answer: answers[i]})
+	}
+	message, err := json.Marshal(showOutput)
+	if err != nil {
+		message = []byte("Error in Marshaling json output")
+	}
+	s := SlackResponse{StatusCode: 200,
+		Headers: Header{ContentType: "application/json"},
+		Body:    string(message)}
+
+	return s, nil
+}
+
+func GetStringInBetween(str string, start string, end string) (result string) {
+	s := strings.Index(str, start)
+	if s == -1 {
+		return
+	}
+	s += len(start)
+	e := strings.Index(str, end)
+	return str[s:e]
 }
 
 func main() {
@@ -73,6 +118,7 @@ Loop:
 					if len(inputStringLength) != 3 {
 						rtm.SendMessage(rtm.NewOutgoingMessage(fmt.Sprintf("Invalid input command"), ev.Channel))
 					} else {
+						Eid = inputStringLength[2]
 						if _, err := os.Stat(fmt.Sprintf("/Users/madhav/%s", inputStringLength[2])); err != nil {
 							if os.IsNotExist(err) {
 								// file does not exist
@@ -119,6 +165,11 @@ func (f FormBotClient) sendQuestions(c chan int) {
 		f.rtm.SendMessage(f.rtm.NewOutgoingMessage(fmt.Sprintf("%s", q), f.ev.Channel))
 		questionCount := <-c
 		if questionCount == len(questions) {
+			b, err := ioutil.ReadFile(fmt.Sprintf("/Users/madhav/%s", Eid))
+			if err != nil {
+				fmt.Print(err)
+			}
+			ansFile := string(b)
 			formbot = false
 			close(c)
 			postMessgeParameters := slack.NewPostMessageParameters()
@@ -132,7 +183,7 @@ func (f FormBotClient) sendQuestions(c chan int) {
 							Name:  "Submit",
 							Text:  "Submit",
 							Type:  "button",
-							Value: "submit",
+							Value: fmt.Sprintf("FS%sFE", ansFile),
 						},
 					},
 					CallbackID: "callbackId",
