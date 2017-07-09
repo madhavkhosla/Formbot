@@ -14,7 +14,6 @@ import (
 )
 
 var questions = []string{"q1", "q2", "q3", "q4"}
-var formbot bool = false
 var Eid string
 
 type Header struct {
@@ -28,8 +27,9 @@ type SlackResponse struct {
 }
 
 type FormBotClient struct {
-	rtm *slack.RTM
-	ev  *slack.MessageEvent
+	rtm            *slack.RTM
+	ev             *slack.MessageEvent
+	userRoutineMap map[string]chan int
 }
 
 type Set struct {
@@ -77,8 +77,9 @@ func main() {
 	api := slack.New(token)
 	rtm := api.NewRTM()
 	go rtm.ManageConnection()
-	c := make(chan int)
-	questionCount := 1
+	userRoutineMap := make(map[string]chan int)
+	//c := make(chan int)
+	//questionCount := 1
 	var w *bufio.Writer
 
 Loop:
@@ -91,7 +92,7 @@ Loop:
 			fmt.Println("Connection counter:", ev.ConnectionCount)
 
 		case *slack.MessageEvent:
-			formBotClient := FormBotClient{rtm, ev}
+			formBotClient := FormBotClient{rtm, ev, userRoutineMap}
 			fmt.Printf("Message: %v\n", ev.Msg.Text)
 			info := rtm.GetInfo()
 			prefix := fmt.Sprintf("<@%s>", info.User.ID)
@@ -108,42 +109,49 @@ Loop:
 				}
 				rtm.PostMessage(ev.Channel, fmt.Sprintf("Formbot help commands"), postMessgeParameters)
 			}
-
-			// Form bot start commands
 			if ev.User != info.User.ID && strings.HasPrefix(ev.Text, fmt.Sprintf("%s create", prefix)) {
 				inputStringLength := strings.Split(ev.Text, " ")
 
 				// Input command not correct
 				if len(inputStringLength) != 3 {
 					rtm.SendMessage(rtm.NewOutgoingMessage(fmt.Sprintf("Invalid input command"), ev.Channel))
-				} else {
-					Eid = inputStringLength[2]
-					if _, err := os.Stat(fmt.Sprintf("/Users/madhav/%s", inputStringLength[2])); err != nil {
+					continue Loop
+				}
+			}
+
+			existingUserChan, ok := userRoutineMap[ev.User]
+			// Form bot start commands
+			if ev.User != info.User.ID && strings.HasPrefix(ev.Text, fmt.Sprintf("%s create", prefix)) && !ok {
+				inputStringLength := strings.Split(ev.Text, " ")
+				Eid = inputStringLength[2]
+				trigger := make(chan int)
+				userRoutineMap[ev.User] = trigger
+				fmt.Println(userRoutineMap)
+				go func(trigger chan int) {
+					if _, err := os.Stat(fmt.Sprintf("/Users/madhav/%s", Eid)); err != nil {
 						if os.IsNotExist(err) {
 							// file does not exist
-							f, err := os.Create(fmt.Sprintf("/Users/madhav/%s", inputStringLength[2]))
+							f, err := os.Create(fmt.Sprintf("/Users/madhav/%s", Eid))
 							if err != nil {
 								fmt.Errorf("ERROR in creating a file \n")
 							}
 							w = bufio.NewWriter(f)
-							go formBotClient.sendQuestions(c)
+							go formBotClient.sendQuestions(trigger)
 						} else {
 							// other error
 						}
 					}
-				}
+				}(trigger)
 			}
 
-			if formbot {
+			if ok {
 				n3, err := w.WriteString(fmt.Sprintf("%s\n", ev.Text))
 				if err != nil {
 					fmt.Errorf(err.Error())
 				}
 				fmt.Printf("wrote %s  %d bytes\n", ev.Text, n3)
 				w.Flush()
-				c <- questionCount
-				questionCount++
-
+				existingUserChan <- 1
 			}
 
 		case *slack.RTMError:
@@ -161,36 +169,34 @@ Loop:
 }
 
 func (f FormBotClient) sendQuestions(c chan int) {
-	formbot = true
 	for _, q := range questions {
 		f.rtm.SendMessage(f.rtm.NewOutgoingMessage(fmt.Sprintf("%s", q), f.ev.Channel))
-		questionCount := <-c
-		if questionCount == len(questions) {
-			b, err := ioutil.ReadFile(fmt.Sprintf("/Users/madhav/%s", Eid))
-			if err != nil {
-				fmt.Print(err)
-			}
-			ansFile := string(b)
-			formbot = false
-			close(c)
-			postMessgeParameters := slack.NewPostMessageParameters()
-			postMessgeParameters.AsUser = true
-			postMessgeParameters.Attachments = []slack.Attachment{
-				{
-					Title: "Do you want to submit the intake form",
-					Color: "#7CD197",
-					Actions: []slack.AttachmentAction{
-						{
-							Name:  "Submit",
-							Text:  "Submit",
-							Type:  "button",
-							Value: fmt.Sprintf("FS%sFE", ansFile),
-						},
-					},
-					CallbackID: "callbackId",
-				},
-			}
-			f.rtm.PostMessage(f.ev.Channel, "", postMessgeParameters)
-		}
+		<-c
 	}
+	b, err := ioutil.ReadFile(fmt.Sprintf("/Users/madhav/%s", Eid))
+	if err != nil {
+		fmt.Print(err)
+	}
+	ansFile := string(b)
+	close(c)
+	delete(f.userRoutineMap, f.ev.User)
+	fmt.Println(f.userRoutineMap)
+	postMessgeParameters := slack.NewPostMessageParameters()
+	postMessgeParameters.AsUser = true
+	postMessgeParameters.Attachments = []slack.Attachment{
+		{
+			Title: "Do you want to submit the intake form",
+			Color: "#7CD197",
+			Actions: []slack.AttachmentAction{
+				{
+					Name:  "Submit",
+					Text:  "Submit",
+					Type:  "button",
+					Value: fmt.Sprintf("FS%sFE", ansFile),
+				},
+			},
+			CallbackID: "callbackId",
+		},
+	}
+	f.rtm.PostMessage(f.ev.Channel, "", postMessgeParameters)
 }
