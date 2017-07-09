@@ -27,14 +27,19 @@ type SlackResponse struct {
 }
 
 type FormBotClient struct {
-	rtm            *slack.RTM
-	ev             *slack.MessageEvent
-	userRoutineMap map[string]chan int
+	rtm        *slack.RTM
+	ev         *slack.MessageEvent
+	infoUserId string
 }
 
 type Set struct {
 	Question string
 	Answer   string
+}
+
+type UserResource struct {
+	UserChannel chan int
+	UserWriter  *bufio.Writer
 }
 
 func init() {
@@ -77,10 +82,7 @@ func main() {
 	api := slack.New(token)
 	rtm := api.NewRTM()
 	go rtm.ManageConnection()
-	userRoutineMap := make(map[string]chan int)
-	//c := make(chan int)
-	//questionCount := 1
-	var w *bufio.Writer
+	userRoutineMap := make(map[string]UserResource)
 
 Loop:
 	for {
@@ -92,66 +94,32 @@ Loop:
 			fmt.Println("Connection counter:", ev.ConnectionCount)
 
 		case *slack.MessageEvent:
-			formBotClient := FormBotClient{rtm, ev, userRoutineMap}
 			fmt.Printf("Message: %v\n", ev.Msg.Text)
 			info := rtm.GetInfo()
-			prefix := fmt.Sprintf("<@%s>", info.User.ID)
+			formBotClient := FormBotClient{rtm, ev, info.User.ID}
 
 			// Form bot help commands
-			if ev.User != info.User.ID && (ev.Text == prefix || ev.Text == fmt.Sprintf("%s help", prefix)) {
-				postMessgeParameters := slack.NewPostMessageParameters()
-				postMessgeParameters.Attachments = []slack.Attachment{
-					{
-						Title: "Command to start new intake form",
-						Text:  "@formbot create [EID]",
-						Color: "#7CD197",
-					},
-				}
-				rtm.PostMessage(ev.Channel, fmt.Sprintf("Formbot help commands"), postMessgeParameters)
-			}
-			if ev.User != info.User.ID && strings.HasPrefix(ev.Text, fmt.Sprintf("%s create", prefix)) {
-				inputStringLength := strings.Split(ev.Text, " ")
+			formBotClient.helpCommands()
 
-				// Input command not correct
-				if len(inputStringLength) != 3 {
-					rtm.SendMessage(rtm.NewOutgoingMessage(fmt.Sprintf("Invalid input command"), ev.Channel))
-					continue Loop
-				}
+			// Input create command not correct
+			check := formBotClient.invalidCreateCommand()
+			if !check {
+				continue Loop
 			}
 
-			existingUserChan, ok := userRoutineMap[ev.User]
+			existingUserResource, ok := userRoutineMap[ev.User]
+
 			// Form bot start commands
-			if ev.User != info.User.ID && strings.HasPrefix(ev.Text, fmt.Sprintf("%s create", prefix)) && !ok {
-				inputStringLength := strings.Split(ev.Text, " ")
-				Eid = inputStringLength[2]
-				trigger := make(chan int)
-				userRoutineMap[ev.User] = trigger
-				fmt.Println(userRoutineMap)
-				go func(trigger chan int) {
-					if _, err := os.Stat(fmt.Sprintf("/Users/madhav/%s", Eid)); err != nil {
-						if os.IsNotExist(err) {
-							// file does not exist
-							f, err := os.Create(fmt.Sprintf("/Users/madhav/%s", Eid))
-							if err != nil {
-								fmt.Errorf("ERROR in creating a file \n")
-							}
-							w = bufio.NewWriter(f)
-							go formBotClient.sendQuestions(trigger)
-						} else {
-							// other error
-						}
-					}
-				}(trigger)
-			}
+			go formBotClient.startForm(userRoutineMap, ok)
 
 			if ok {
-				n3, err := w.WriteString(fmt.Sprintf("%s\n", ev.Text))
+				n3, err := existingUserResource.UserWriter.WriteString(fmt.Sprintf("%s\n", ev.Text))
 				if err != nil {
 					fmt.Errorf(err.Error())
 				}
 				fmt.Printf("wrote %s  %d bytes\n", ev.Text, n3)
-				w.Flush()
-				existingUserChan <- 1
+				existingUserResource.UserWriter.Flush()
+				existingUserResource.UserChannel <- 1
 			}
 
 		case *slack.RTMError:
@@ -168,7 +136,7 @@ Loop:
 	}
 }
 
-func (f FormBotClient) sendQuestions(c chan int) {
+func (f FormBotClient) sendQuestions(c chan int, userRoutineMap map[string]UserResource) {
 	for _, q := range questions {
 		f.rtm.SendMessage(f.rtm.NewOutgoingMessage(fmt.Sprintf("%s", q), f.ev.Channel))
 		<-c
@@ -179,8 +147,8 @@ func (f FormBotClient) sendQuestions(c chan int) {
 	}
 	ansFile := string(b)
 	close(c)
-	delete(f.userRoutineMap, f.ev.User)
-	fmt.Println(f.userRoutineMap)
+	delete(userRoutineMap, f.ev.User)
+	fmt.Println(userRoutineMap)
 	postMessgeParameters := slack.NewPostMessageParameters()
 	postMessgeParameters.AsUser = true
 	postMessgeParameters.Attachments = []slack.Attachment{
