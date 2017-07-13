@@ -76,6 +76,19 @@ Loop:
 
 			existingUserResource, ok := userRoutineMap[ev.User]
 
+			// Trying to restart intake form with previous intake form in progress
+			// Should be before start form
+			lastQuestionAsked, err := formBotClient.restartFormInSession(userRoutineMap, ok)
+			if err != nil {
+				fmt.Printf("Something went wrong")
+				break Loop
+			}
+			if lastQuestionAsked >= 0 {
+				existingUserResource.UserChannel <- lastQuestionAsked
+				continue Loop
+
+			}
+
 			// Form bot start commands
 			go formBotClient.startForm(userRoutineMap, ok)
 
@@ -86,7 +99,7 @@ Loop:
 				}
 				fmt.Printf("wrote %s  %d bytes\n", ev.Text, n3)
 				existingUserResource.UserWriter.Flush()
-				existingUserResource.UserChannel <- 1
+				existingUserResource.UserChannel <- -1
 			}
 
 		case *slack.RTMError:
@@ -103,10 +116,16 @@ Loop:
 	}
 }
 
-func (f FormBotClient) sendQuestions(c chan int, userRoutineMap map[string]UserResource) {
-	for _, q := range questions {
-		f.rtm.SendMessage(f.rtm.NewOutgoingMessage(fmt.Sprintf("%s", q), f.ev.Channel))
-		<-c
+func (f FormBotClient) sendQuestions(c chan int, userRoutineMap map[string]UserResource, startI int) {
+	for i := startI; i < len(questions); {
+		f.rtm.SendMessage(f.rtm.NewOutgoingMessage(fmt.Sprintf("%s", questions[i]), f.ev.Channel))
+		index := <-c
+		if index == -1 {
+			i = i + 1
+		} else {
+			fmt.Printf("Index is %v", index)
+			i = index
+		}
 	}
 	b, err := ioutil.ReadFile(fmt.Sprintf("/Users/madhav/%s", Eid))
 	if err != nil {
