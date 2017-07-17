@@ -38,6 +38,7 @@ type Set struct {
 type UserResource struct {
 	UserChannel chan int
 	UserWriter  *bufio.Writer
+	AnsArray    []int
 }
 
 func init() {
@@ -49,7 +50,7 @@ func main() {
 	api := slack.New(token)
 	rtm := api.NewRTM()
 	go rtm.ManageConnection()
-	userRoutineMap := make(map[string]UserResource)
+	userRoutineMap := make(map[string]*UserResource)
 
 Loop:
 	for {
@@ -97,6 +98,8 @@ Loop:
 				if err != nil {
 					fmt.Errorf(err.Error())
 				}
+				existingUserResource.AnsArray = append(existingUserResource.AnsArray, n3)
+				fmt.Println(existingUserResource)
 				fmt.Printf("wrote %s  %d bytes\n", ev.Text, n3)
 				existingUserResource.UserWriter.Flush()
 				existingUserResource.UserChannel <- -1
@@ -116,7 +119,7 @@ Loop:
 	}
 }
 
-func (f FormBotClient) sendQuestions(c chan int, userRoutineMap map[string]UserResource, startI int) {
+func (f FormBotClient) sendQuestions(c chan int, userRoutineMap map[string]*UserResource, startI int) {
 	for i := startI; i < len(questions); {
 		f.rtm.SendMessage(f.rtm.NewOutgoingMessage(fmt.Sprintf("%s", questions[i]), f.ev.Channel))
 		index := <-c

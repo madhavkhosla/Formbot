@@ -41,7 +41,7 @@ func (f FormBotClient) readAnsAndDisplay() (int, error) {
 	return -1, nil
 }
 
-func (f FormBotClient) restartFormInSession(userRoutineMap map[string]UserResource, ok bool) (int, error) {
+func (f FormBotClient) restartFormInSession(userRoutineMap map[string]*UserResource, ok bool) (int, error) {
 	prefix := fmt.Sprintf("<@%s>", f.infoUserId)
 	if f.ev.User != f.infoUserId && strings.HasPrefix(f.ev.Text, fmt.Sprintf("%s create", prefix)) && ok {
 		inputStringLength := strings.Split(f.ev.Text, " ")

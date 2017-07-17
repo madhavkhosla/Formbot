@@ -10,7 +10,7 @@ import (
 	"github.com/nlopes/slack"
 )
 
-func (f FormBotClient) startForm(userRoutineMap map[string]UserResource, ok bool) {
+func (f FormBotClient) startForm(userRoutineMap map[string]*UserResource, ok bool) {
 	prefix := fmt.Sprintf("<@%s>", f.infoUserId)
 	if f.ev.User != f.infoUserId && strings.HasPrefix(f.ev.Text, fmt.Sprintf("%s create", prefix)) && !ok {
 		fmt.Println("Inside Start form")
@@ -26,7 +26,7 @@ func (f FormBotClient) startForm(userRoutineMap map[string]UserResource, ok bool
 					fmt.Errorf("ERROR in creating a file \n")
 				}
 				w := bufio.NewWriter(file)
-				userRoutineMap[f.ev.User] = UserResource{trigger, w}
+				userRoutineMap[f.ev.User] = &UserResource{trigger, w, []int{}}
 				fmt.Println(userRoutineMap)
 				go f.sendQuestions(trigger, userRoutineMap, 0)
 			}
@@ -41,7 +41,7 @@ func (f FormBotClient) startForm(userRoutineMap map[string]UserResource, ok bool
 				fmt.Errorf("ERROR in opening a file \n")
 			}
 			w := bufio.NewWriter(file)
-			userRoutineMap[f.ev.User] = UserResource{trigger, w}
+			userRoutineMap[f.ev.User] = &UserResource{trigger, w, []int{}}
 			fmt.Println(userRoutineMap)
 			go f.sendQuestions(trigger, userRoutineMap, lastAnsSaved)
 		}
