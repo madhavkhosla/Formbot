@@ -10,13 +10,39 @@ import (
 	"github.com/nlopes/slack"
 )
 
-func (f FormBotClient) startForm(userRoutineMap map[string]*UserResource, ok bool) {
-	prefix := fmt.Sprintf("<@%s>", f.infoUserId)
-	if f.ev.User != f.infoUserId && strings.HasPrefix(f.ev.Text, fmt.Sprintf("%s create", prefix)) && !ok {
-		fmt.Println("Inside Start form")
-		inputStringLength := strings.Split(f.ev.Text, " ")
-		Eid = inputStringLength[2]
-		trigger := make(chan int)
+func (formBotClient FormBotClient) startUserRoutine(existingUserResource *UserResource) {
+	for {
+		select {
+		case userEvent := <-existingUserResource.UserChannel:
+			n3, err := existingUserResource.Writer.WriteString(fmt.Sprintf("%s\n", userEvent.Text))
+			if err != nil {
+				fmt.Errorf(err.Error())
+			}
+
+			fmt.Println(existingUserResource)
+			fmt.Printf("wrote %s  %d bytes\n", userEvent.Text, n3)
+			existingUserResource.Writer.Flush()
+			existingUserResource.SyncChannel <- -1
+		case <-existingUserResource.QuitChannel:
+			fmt.Println("quit")
+			return
+		}
+	}
+}
+
+func (formBotClient FormBotClient) startForm(ev *slack.MessageEvent, userFullMap map[string]map[string]*UserResource,
+	userRoutineMap map[string]*UserResource) {
+
+	fmt.Println("Inside Start form")
+	trigger := make(chan int)
+	userChannel := make(chan *slack.MessageEvent)
+	inputStringLength := strings.Split(ev.Text, " ")
+	Eid = inputStringLength[2]
+	existingUserResource, ok := userFullMap[ev.User][Eid]
+	if !ok {
+		innerMap := make(map[string]*UserResource)
+		// File does not exist.
+		// 1) Check if file exists or a new file
 		if _, err := os.Stat(fmt.Sprintf("/Users/madhav/%s", Eid)); err != nil {
 			if os.IsNotExist(err) {
 				fmt.Println("Inside File does not exists")
@@ -26,13 +52,18 @@ func (f FormBotClient) startForm(userRoutineMap map[string]*UserResource, ok boo
 					fmt.Errorf("ERROR in creating a file \n")
 				}
 				w := bufio.NewWriter(file)
-				userRoutineMap[f.ev.User] = &UserResource{trigger, w, []int{}}
-				fmt.Println(userRoutineMap)
-				go f.sendQuestions(trigger, userRoutineMap, 0)
+				innerMap[Eid] = &UserResource{userChannel,
+					trigger,
+					w,
+					make(chan int)}
+				userFullMap[ev.User] = innerMap
+				userRoutineMap[ev.User] = userFullMap[ev.User][Eid]
+				fmt.Println(userFullMap)
+				go formBotClient.sendQuestions(ev, trigger, userFullMap, 0, Eid)
 			}
 		} else {
 			fmt.Println("File already exists")
-			lastAnsSaved, err := f.readAnsAndDisplay()
+			lastAnsSaved, err := formBotClient.readAnsAndDisplay(ev.Channel)
 			if err != nil {
 				fmt.Errorf("Something went wrong when file already exists and starting form")
 			}
@@ -41,29 +72,43 @@ func (f FormBotClient) startForm(userRoutineMap map[string]*UserResource, ok boo
 				fmt.Errorf("ERROR in opening a file \n")
 			}
 			w := bufio.NewWriter(file)
-			userRoutineMap[f.ev.User] = &UserResource{trigger, w, []int{}}
-			fmt.Println(userRoutineMap)
-			go f.sendQuestions(trigger, userRoutineMap, lastAnsSaved)
+			innerMap[Eid] = &UserResource{userChannel,
+				trigger,
+				w,
+				make(chan int)}
+			userFullMap[ev.User] = innerMap
+			userRoutineMap[ev.User] = userFullMap[ev.User][Eid]
+			fmt.Println(userFullMap)
+			go formBotClient.sendQuestions(ev, trigger, userFullMap, lastAnsSaved, Eid)
+		}
+		go formBotClient.startUserRoutine(userRoutineMap[ev.User])
+	} else {
+		fmt.Println("Existing user restoring older form")
+		lastQuestionAsked, err := formBotClient.readAnsAndDisplay(ev.Channel)
+		if err != nil {
+			fmt.Printf("Something went wrong")
+		}
+		userRoutineMap[ev.User] = existingUserResource
+		if lastQuestionAsked >= 0 {
+			userRoutineMap[ev.User].SyncChannel <- lastQuestionAsked
 		}
 	}
+
 }
 
-func (f FormBotClient) invalidCreateCommand() bool {
-	prefix := fmt.Sprintf("<@%s>", f.infoUserId)
-	if f.ev.User != f.infoUserId && strings.HasPrefix(f.ev.Text, fmt.Sprintf("%s create", prefix)) {
-		inputStringLength := strings.Split(f.ev.Text, " ")
-
-		if len(inputStringLength) != 3 {
-			f.rtm.SendMessage(f.rtm.NewOutgoingMessage(fmt.Sprintf("Invalid input command"), f.ev.Channel))
-			return false
-		}
+func (f FormBotClient) invalidCreateCommand(ev *slack.MessageEvent) bool {
+	inputStringLength := strings.Split(ev.Text, " ")
+	if len(inputStringLength) != 3 {
+		f.rtm.SendMessage(f.rtm.NewOutgoingMessage(fmt.Sprintf("Invalid input command"), ev.Channel))
+		return false
 	}
 	return true
 }
 
-func (f FormBotClient) helpCommands() {
-	prefix := fmt.Sprintf("<@%s>", f.infoUserId)
-	if f.ev.User != f.infoUserId && (f.ev.Text == prefix || f.ev.Text == fmt.Sprintf("%s help", prefix)) {
+func (f FormBotClient) helpCommands(ev *slack.MessageEvent) {
+	botId := f.rtm.GetInfo().User.ID
+	prefix := fmt.Sprintf("<@%s>", botId)
+	if ev.User != botId && (ev.Text == prefix || ev.Text == fmt.Sprintf("%s help", prefix)) {
 		postMessgeParameters := slack.NewPostMessageParameters()
 		postMessgeParameters.Attachments = []slack.Attachment{
 			{
@@ -72,6 +117,6 @@ func (f FormBotClient) helpCommands() {
 				Color: "#7CD197",
 			},
 		}
-		f.rtm.PostMessage(f.ev.Channel, fmt.Sprintf("Formbot help commands"), postMessgeParameters)
+		f.rtm.PostMessage(ev.Channel, fmt.Sprintf("Formbot help commands"), postMessgeParameters)
 	}
 }

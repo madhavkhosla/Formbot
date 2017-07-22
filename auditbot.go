@@ -7,6 +7,8 @@ import (
 
 	"io/ioutil"
 
+	"strings"
+
 	"github.com/eawsy/aws-lambda-go/service/lambda/runtime"
 	"github.com/nlopes/slack"
 )
@@ -25,9 +27,9 @@ type SlackResponse struct {
 }
 
 type FormBotClient struct {
-	rtm        *slack.RTM
-	ev         *slack.MessageEvent
-	infoUserId string
+	rtm *slack.RTM
+	////ev         *slack.MessageEvent
+	//infoUserId string
 }
 
 type Set struct {
@@ -36,9 +38,10 @@ type Set struct {
 }
 
 type UserResource struct {
-	UserChannel chan int
-	UserWriter  *bufio.Writer
-	AnsArray    []int
+	UserChannel chan *slack.MessageEvent
+	SyncChannel chan int
+	Writer      *bufio.Writer
+	QuitChannel chan int
 }
 
 func init() {
@@ -51,7 +54,8 @@ func main() {
 	rtm := api.NewRTM()
 	go rtm.ManageConnection()
 	userRoutineMap := make(map[string]*UserResource)
-
+	userFullMap := make(map[string]map[string]*UserResource)
+	formBotClient := FormBotClient{rtm}
 Loop:
 	for {
 		msg := <-rtm.IncomingEvents
@@ -63,46 +67,23 @@ Loop:
 
 		case *slack.MessageEvent:
 			fmt.Printf("Message: %v\n", ev.Msg.Text)
-			info := rtm.GetInfo()
-			formBotClient := FormBotClient{rtm, ev, info.User.ID}
 
 			// Form bot help commands
-			formBotClient.helpCommands()
+			formBotClient.helpCommands(ev)
 
-			// Input create command not correct
-			check := formBotClient.invalidCreateCommand()
-			if !check {
-				continue Loop
-			}
+			prefix := fmt.Sprintf("<@%s>", formBotClient.rtm.GetInfo().User.ID)
+			fmt.Printf("%s-%s\n", ev.User, formBotClient.rtm.GetInfo().User.ID)
 
-			existingUserResource, ok := userRoutineMap[ev.User]
-
-			// Trying to restart intake form with previous intake form in progress
-			// Should be before start form
-			lastQuestionAsked, err := formBotClient.restartFormInSession(userRoutineMap, ok)
-			if err != nil {
-				fmt.Printf("Something went wrong")
-				break Loop
-			}
-			if lastQuestionAsked >= 0 {
-				existingUserResource.UserChannel <- lastQuestionAsked
-				continue Loop
-
-			}
-
-			// Form bot start commands
-			go formBotClient.startForm(userRoutineMap, ok)
-
-			if ok {
-				n3, err := existingUserResource.UserWriter.WriteString(fmt.Sprintf("%s\n", ev.Text))
-				if err != nil {
-					fmt.Errorf(err.Error())
+			if ev.User != formBotClient.rtm.GetInfo().User.ID && strings.HasPrefix(ev.Text, fmt.Sprintf("%s create", prefix)) {
+				// Input create command not correct
+				check := formBotClient.invalidCreateCommand(ev)
+				if !check {
+					continue Loop
 				}
-				existingUserResource.AnsArray = append(existingUserResource.AnsArray, n3)
-				fmt.Println(existingUserResource)
-				fmt.Printf("wrote %s  %d bytes\n", ev.Text, n3)
-				existingUserResource.UserWriter.Flush()
-				existingUserResource.UserChannel <- -1
+				go formBotClient.startForm(ev, userFullMap, userRoutineMap)
+			} else if ev.User != formBotClient.rtm.GetInfo().User.ID && len(ev.User) > 0 {
+				existingUserResource := userRoutineMap[ev.User]
+				existingUserResource.UserChannel <- ev
 			}
 
 		case *slack.RTMError:
@@ -119,9 +100,11 @@ Loop:
 	}
 }
 
-func (f FormBotClient) sendQuestions(c chan int, userRoutineMap map[string]*UserResource, startI int) {
+func (f FormBotClient) sendQuestions(ev *slack.MessageEvent, c chan int,
+	userFullMap map[string]map[string]*UserResource, startI int, Eid string) {
+
 	for i := startI; i < len(questions); {
-		f.rtm.SendMessage(f.rtm.NewOutgoingMessage(fmt.Sprintf("%s", questions[i]), f.ev.Channel))
+		f.rtm.SendMessage(f.rtm.NewOutgoingMessage(fmt.Sprintf("%s", questions[i]), ev.Channel))
 		index := <-c
 		if index == -1 {
 			i = i + 1
@@ -135,9 +118,14 @@ func (f FormBotClient) sendQuestions(c chan int, userRoutineMap map[string]*User
 		fmt.Print(err)
 	}
 	ansFile := string(b)
+	existingUserResource := userFullMap[ev.User]
+	existingUserResource[Eid].QuitChannel <- 0
 	close(c)
-	delete(userRoutineMap, f.ev.User)
-	fmt.Println(userRoutineMap)
+	close(existingUserResource[Eid].UserChannel)
+	close(existingUserResource[Eid].QuitChannel)
+	delete(existingUserResource, Eid)
+	// Delete File part is left
+	fmt.Println(userFullMap)
 	postMessgeParameters := slack.NewPostMessageParameters()
 	postMessgeParameters.AsUser = true
 	postMessgeParameters.Attachments = []slack.Attachment{
@@ -155,5 +143,5 @@ func (f FormBotClient) sendQuestions(c chan int, userRoutineMap map[string]*User
 			CallbackID: "callbackId",
 		},
 	}
-	f.rtm.PostMessage(f.ev.Channel, "", postMessgeParameters)
+	f.rtm.PostMessage(ev.Channel, "", postMessgeParameters)
 }

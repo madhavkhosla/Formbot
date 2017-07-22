@@ -4,12 +4,11 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/nlopes/slack"
 )
 
-func (f FormBotClient) readAnsAndDisplay() (int, error) {
+func (f FormBotClient) readAnsAndDisplay(eventChannel string) (int, error) {
 	answerArray := make([]slack.AttachmentField, 0, len(questions))
 	if file, err := os.Open(fmt.Sprintf("/Users/madhav/%s", Eid)); err == nil {
 		defer file.Close()
@@ -35,24 +34,8 @@ func (f FormBotClient) readAnsAndDisplay() (int, error) {
 				Fields: answerArray,
 			},
 		}
-		f.rtm.PostMessage(f.ev.Channel, "", postMessgeParameters)
+		f.rtm.PostMessage(eventChannel, "", postMessgeParameters)
 		return len(answerArray), nil
-	}
-	return -1, nil
-}
-
-func (f FormBotClient) restartFormInSession(userRoutineMap map[string]*UserResource, ok bool) (int, error) {
-	prefix := fmt.Sprintf("<@%s>", f.infoUserId)
-	if f.ev.User != f.infoUserId && strings.HasPrefix(f.ev.Text, fmt.Sprintf("%s create", prefix)) && ok {
-		inputStringLength := strings.Split(f.ev.Text, " ")
-		Eid = inputStringLength[2]
-		if _, err := os.Stat(fmt.Sprintf("/Users/madhav/%s", Eid)); err != nil {
-			if os.IsNotExist(err) {
-				fmt.Errorf("Error file should exist.\n")
-				return -1, err
-			}
-		}
-		return f.readAnsAndDisplay()
 	}
 	return -1, nil
 }
