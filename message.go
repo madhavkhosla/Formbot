@@ -14,7 +14,17 @@ func (formBotClient FormBotClient) startUserRoutine(existingUserResource *UserRe
 	for {
 		select {
 		case userEvent := <-existingUserResource.UserChannel:
-			n3, err := existingUserResource.Writer.WriteString(fmt.Sprintf("%s\n", userEvent.Text))
+			userInputArray := []byte(userEvent.Text)
+			outputArray := make([]byte, 100)
+			for i := 0; i < 99; i++ {
+				if i > len(userInputArray)-1 {
+					outputArray[i] = 0
+					continue
+				}
+				outputArray[i] = userInputArray[i]
+			}
+			outputArray[99] = '\n'
+			n3, err := existingUserResource.Writer.Write(outputArray)
 			if err != nil {
 				fmt.Errorf(err.Error())
 			}

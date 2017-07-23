@@ -82,6 +82,11 @@ Loop:
 				}
 				go formBotClient.startForm(ev, userFullMap, userRoutineMap)
 			} else if ev.User != formBotClient.rtm.GetInfo().User.ID && len(ev.User) > 0 {
+				if len(ev.Text) > 100 {
+					rtm.SendMessage(rtm.NewOutgoingMessage(
+						fmt.Sprintf("Input should be less than 100 chars. Try Again"), ev.Channel))
+					continue
+				}
 				existingUserResource := userRoutineMap[ev.User]
 				existingUserResource.UserChannel <- ev
 			}
