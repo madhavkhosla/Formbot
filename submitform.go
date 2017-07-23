@@ -12,7 +12,9 @@ func SubmitForm(evt json.RawMessage, ctx *runtime.Context) (interface{}, error) 
 
 	json.Unmarshal(evt, &user)
 	text := GetStringInBetween(user["body"], "FS", "FE")
-	answers := strings.Split(text, "+")
+	var replacer = strings.NewReplacer("+", " ")
+	text = replacer.Replace(text)
+	answers := strings.Split(text, "%24")
 	showOutput := make([]Set, 0, len(questions))
 	for i := 0; i < len(questions); i++ {
 		showOutput = append(showOutput, Set{Question: questions[i], Answer: answers[i]})

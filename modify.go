@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 
+	"strings"
+
 	"github.com/nlopes/slack"
 )
 
@@ -12,15 +14,17 @@ func (f FormBotClient) readAnsAndDisplay(eventChannel string) (int, error) {
 	answerArray := make([]slack.AttachmentField, 0, len(questions))
 	if file, err := os.Open(fmt.Sprintf("/Users/madhav/%s", Eid)); err == nil {
 		defer file.Close()
+		var replacer = strings.NewReplacer("$", " ")
 		scanner := bufio.NewScanner(file)
 		for i := 0; scanner.Scan(); {
 			answerArray = append(answerArray, slack.AttachmentField{
 				Title: questions[i],
-				Value: scanner.Text(),
+				Value: replacer.Replace(scanner.Text()),
 				Short: false,
 			})
 			i++
 		}
+
 		fmt.Println(answerArray)
 		if err = scanner.Err(); err != nil {
 			fmt.Errorf("%s", err)

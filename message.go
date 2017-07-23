@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"strings"
 
-	"bufio"
+	//"bufio"
 	"os"
 
 	"github.com/nlopes/slack"
+	//"google.golang.org/appengine/file"
+	"strconv"
 )
 
 func (formBotClient FormBotClient) startUserRoutine(existingUserResource *UserResource) {
@@ -15,6 +17,7 @@ func (formBotClient FormBotClient) startUserRoutine(existingUserResource *UserRe
 		select {
 		case userEvent := <-existingUserResource.UserChannel:
 			userInputArray := []byte(userEvent.Text)
+			userInputArray = append(userInputArray, '$')
 			outputArray := make([]byte, 100)
 			for i := 0; i < 99; i++ {
 				if i > len(userInputArray)-1 {
@@ -24,14 +27,14 @@ func (formBotClient FormBotClient) startUserRoutine(existingUserResource *UserRe
 				outputArray[i] = userInputArray[i]
 			}
 			outputArray[99] = '\n'
-			n3, err := existingUserResource.Writer.Write(outputArray)
+			n3, err := existingUserResource.File.Write(outputArray)
 			if err != nil {
 				fmt.Errorf(err.Error())
 			}
 
 			fmt.Println(existingUserResource)
 			fmt.Printf("wrote %s  %d bytes\n", userEvent.Text, n3)
-			existingUserResource.Writer.Flush()
+			//existingUserResource.Writer.Flush()
 			existingUserResource.SyncChannel <- -1
 		case <-existingUserResource.QuitChannel:
 			fmt.Println("quit")
@@ -46,6 +49,7 @@ func (formBotClient FormBotClient) startForm(ev *slack.MessageEvent, userFullMap
 	fmt.Println("Inside Start form")
 	trigger := make(chan int)
 	userChannel := make(chan *slack.MessageEvent)
+	modifyChannel := make(chan *slack.MessageEvent)
 	inputStringLength := strings.Split(ev.Text, " ")
 	Eid = inputStringLength[2]
 	existingUserResource, ok := userFullMap[ev.User][Eid]
@@ -61,11 +65,14 @@ func (formBotClient FormBotClient) startForm(ev *slack.MessageEvent, userFullMap
 				if err != nil {
 					fmt.Errorf("ERROR in creating a file \n")
 				}
-				w := bufio.NewWriter(file)
+				//w := bufio.NewWriter(file)
 				innerMap[Eid] = &UserResource{userChannel,
+					modifyChannel,
 					trigger,
-					w,
-					make(chan int)}
+					file,
+					make(chan int),
+					Eid,
+					false}
 				userFullMap[ev.User] = innerMap
 				userRoutineMap[ev.User] = userFullMap[ev.User][Eid]
 				fmt.Println(userFullMap)
@@ -81,11 +88,14 @@ func (formBotClient FormBotClient) startForm(ev *slack.MessageEvent, userFullMap
 			if err != nil {
 				fmt.Errorf("ERROR in opening a file \n")
 			}
-			w := bufio.NewWriter(file)
+			//w := bufio.NewWriter(file)
 			innerMap[Eid] = &UserResource{userChannel,
+				modifyChannel,
 				trigger,
-				w,
-				make(chan int)}
+				file,
+				make(chan int),
+				Eid,
+				false}
 			userFullMap[ev.User] = innerMap
 			userRoutineMap[ev.User] = userFullMap[ev.User][Eid]
 			fmt.Println(userFullMap)
@@ -98,6 +108,9 @@ func (formBotClient FormBotClient) startForm(ev *slack.MessageEvent, userFullMap
 		if err != nil {
 			fmt.Printf("Something went wrong")
 		}
+		// If someone calls modify and then switches forms, when he comes back to first form
+		// Modify flag is removed.
+		existingUserResource.Modify = false
 		userRoutineMap[ev.User] = existingUserResource
 		if lastQuestionAsked >= 0 {
 			userRoutineMap[ev.User].SyncChannel <- lastQuestionAsked
@@ -128,5 +141,51 @@ func (f FormBotClient) helpCommands(ev *slack.MessageEvent) {
 			},
 		}
 		f.rtm.PostMessage(ev.Channel, fmt.Sprintf("Formbot help commands"), postMessgeParameters)
+	}
+}
+
+func (f FormBotClient) updateAnswer(ev *slack.MessageEvent, existingUserResource *UserResource) {
+	inputStringLength := strings.Split(ev.Text, " ")
+	modifyQuestionString := inputStringLength[2]
+	modifyQuestion, err := strconv.Atoi(modifyQuestionString)
+	if err != nil {
+		fmt.Errorf("Error in update Answer in converting question number to int")
+	}
+	f.rtm.SendMessage(f.rtm.NewOutgoingMessage(fmt.Sprintf("%s", questions[modifyQuestion-1]), ev.Channel))
+	go f.modifyAnswerRoutine(modifyQuestion, existingUserResource)
+}
+
+func (f FormBotClient) modifyAnswerRoutine(modifyQuestion int, existingUserResource *UserResource) {
+
+	modifyAnsEvent := <-existingUserResource.ModifyChannel
+
+	userInputArray := []byte(modifyAnsEvent.Text)
+	outputArray := make([]byte, 100)
+	for i := 0; i < 99; i++ {
+		if i > len(userInputArray)-1 {
+			outputArray[i] = 0
+			continue
+		}
+		outputArray[i] = userInputArray[i]
+	}
+	outputArray[99] = '\n'
+	n, err := existingUserResource.File.WriteAt(outputArray, int64((modifyQuestion-1)*100))
+	if err != nil {
+		fmt.Errorf("%s", err.Error())
+	}
+	fmt.Println(n)
+	fmt.Println("Existing user restoring older form")
+	lastQuestionAsked, err := f.readAnsAndDisplay(modifyAnsEvent.Channel)
+	if err != nil {
+		fmt.Printf("Something went wrong")
+	}
+	existingUserResource.Modify = false
+	fmt.Println(lastQuestionAsked)
+	if lastQuestionAsked > 3 {
+		f.submitForm(modifyAnsEvent, existingUserResource)
+		return
+	}
+	if lastQuestionAsked >= 0 {
+		existingUserResource.SyncChannel <- lastQuestionAsked
 	}
 }
