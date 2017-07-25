@@ -146,12 +146,12 @@ func (f FormBotClient) helpCommands(ev *slack.MessageEvent) {
 
 func (f FormBotClient) updateAnswer(ev *slack.MessageEvent, existingUserResource *UserResource) {
 	inputStringLength := strings.Split(ev.Text, " ")
-	modifyQuestionString := inputStringLength[2]
+	modifyQuestionString := inputStringLength[3]
 	modifyQuestion, err := strconv.Atoi(modifyQuestionString)
 	if err != nil {
 		fmt.Errorf("Error in update Answer in converting question number to int")
 	}
-	f.rtm.SendMessage(f.rtm.NewOutgoingMessage(fmt.Sprintf("%s", questions[modifyQuestion-1]), ev.Channel))
+	f.rtm.SendMessage(f.rtm.NewOutgoingMessage(fmt.Sprintf("%s", questions[modifyQuestion]), ev.Channel))
 	go f.modifyAnswerRoutine(modifyQuestion, existingUserResource)
 }
 
@@ -169,7 +169,7 @@ func (f FormBotClient) modifyAnswerRoutine(modifyQuestion int, existingUserResou
 		outputArray[i] = userInputArray[i]
 	}
 	outputArray[99] = '\n'
-	n, err := existingUserResource.File.WriteAt(outputArray, int64((modifyQuestion-1)*100))
+	n, err := existingUserResource.File.WriteAt(outputArray, int64((modifyQuestion)*100))
 	if err != nil {
 		fmt.Errorf("%s", err.Error())
 	}

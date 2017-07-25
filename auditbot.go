@@ -70,6 +70,7 @@ Loop:
 			fmt.Println("Connection counter:", ev.ConnectionCount)
 
 		case *slack.MessageEvent:
+			fmt.Println(ev.Msg.BotID)
 			fmt.Printf("Message: %v\n", ev.Msg.Text)
 
 			// Form bot help commands
@@ -85,9 +86,14 @@ Loop:
 					continue Loop
 				}
 				go formBotClient.startForm(ev, userFullMap, userRoutineMap)
-			} else if ev.User != formBotClient.rtm.GetInfo().User.ID && strings.HasPrefix(ev.Text, fmt.Sprintf("%s modify", prefix)) {
-				existingUserResource := userRoutineMap[ev.User]
+			} else if ev.User != formBotClient.rtm.GetInfo().User.ID && ev.Text == fmt.Sprintf("%s modify", prefix) {
+				fmt.Println("INSIDE THE MODIFY IF 1")
 				formBotClient.modifyMenu(ev)
+			} else if strings.Contains(ev.Text, "Modify Question") {
+				inputStringLength := strings.Split(ev.Text, " ")
+				user := inputStringLength[0]
+				fmt.Println(user)
+				existingUserResource := userRoutineMap[user[2:len(user)-1]]
 				existingUserResource.Modify = true
 				go formBotClient.updateAnswer(ev, existingUserResource)
 			} else if ev.User != formBotClient.rtm.GetInfo().User.ID && len(ev.User) > 0 {
@@ -159,7 +165,7 @@ func (f FormBotClient) sendQuestions(ev *slack.MessageEvent, c chan int,
 					Name:  "Submit",
 					Text:  "Submit",
 					Type:  "button",
-					Value: fmt.Sprintf("FS%sFE", ansFile),
+					Value: fmt.Sprintf("%s", ansFile),
 				},
 			},
 			CallbackID: "callbackId",
@@ -174,7 +180,7 @@ func (f FormBotClient) submitForm(ev *slack.MessageEvent, existingUserResource *
 		fmt.Print(err)
 	}
 	ansFile := string(b)
-	fmt.Println(fmt.Sprintf("FS%sFE", ansFile))
+	fmt.Println(fmt.Sprintf("%s", ansFile))
 	postMessgeParameters := slack.NewPostMessageParameters()
 	postMessgeParameters.AsUser = true
 	postMessgeParameters.Attachments = []slack.Attachment{
@@ -186,7 +192,7 @@ func (f FormBotClient) submitForm(ev *slack.MessageEvent, existingUserResource *
 					Name:  "Submit",
 					Text:  "Submit",
 					Type:  "button",
-					Value: fmt.Sprintf("FS%sFE", ansFile),
+					Value: fmt.Sprintf("%s", ansFile),
 				},
 			},
 			CallbackID: "callbackId",
@@ -206,11 +212,11 @@ func (f FormBotClient) modifyMenu(ev *slack.MessageEvent) {
 
 	attachment := slack.Attachment{
 		Text:       "Modify Answer",
-		Color:      "#f9a41b",
+		Color:      "#7CD197",
 		CallbackID: "menuCallbackId",
 		Actions: []slack.AttachmentAction{
 			{
-				Name:    "select",
+				Name:    "Select",
 				Type:    "select",
 				Options: questionOptions,
 			},
@@ -221,6 +227,7 @@ func (f FormBotClient) modifyMenu(ev *slack.MessageEvent) {
 		Attachments: []slack.Attachment{
 			attachment,
 		},
+		AsUser: true,
 	}
 
 	if _, _, err := f.rtm.PostMessage(ev.Channel, "", params); err != nil {
