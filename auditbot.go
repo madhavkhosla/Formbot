@@ -3,11 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
-
 	"strings"
 
 	"io/ioutil"
-
 	"strconv"
 
 	"github.com/eawsy/aws-lambda-go/service/lambda/runtime"
@@ -15,7 +13,6 @@ import (
 )
 
 var questions = []string{"q1", "q2", "q3", "q4"}
-var Eid string
 
 type Header struct {
 	ContentType string `json:"Content-Type"`
@@ -102,13 +99,14 @@ Loop:
 				inputStringLength := strings.Split(ev.Text, " ")
 				user := inputStringLength[0]
 				fmt.Println(user)
+				formName := userRoutineMap[user[2:len(user)-1]].FormName
 				existingUserResource := userFullMap[user[2:len(user)-1]]
-				existingUserResource[Eid].QuitChannel <- 0
-				close(existingUserResource[Eid].SyncChannel)
-				close(existingUserResource[Eid].UserChannel)
-				close(existingUserResource[Eid].QuitChannel)
-				close(existingUserResource[Eid].ModifyChannel)
-				delete(existingUserResource, Eid)
+				existingUserResource[formName].QuitChannel <- 0
+				close(existingUserResource[formName].SyncChannel)
+				close(existingUserResource[formName].UserChannel)
+				close(existingUserResource[formName].QuitChannel)
+				close(existingUserResource[formName].ModifyChannel)
+				delete(existingUserResource, formName)
 				delete(userRoutineMap, user[2:len(user)-1])
 				// Delete File part is left
 				fmt.Println(userFullMap)
@@ -152,7 +150,14 @@ func (f FormBotClient) sendQuestions(ev *slack.MessageEvent, c chan int,
 	userFullMap map[string]map[string]*UserResource, startI int, Eid string) {
 
 	for i := startI; i < len(questions); {
-		f.rtm.SendMessage(f.rtm.NewOutgoingMessage(fmt.Sprintf("%s", questions[i]), ev.Channel))
+		postMessgeParameters := slack.NewPostMessageParameters()
+		postMessgeParameters.Attachments = []slack.Attachment{
+			{
+				Title: questions[i],
+				Color: "#7CD197",
+			},
+		}
+		f.rtm.PostMessage(ev.Channel, "Question", postMessgeParameters)
 		index := <-c
 		if index == -1 {
 			i = i + 1
@@ -166,7 +171,7 @@ func (f FormBotClient) sendQuestions(ev *slack.MessageEvent, c chan int,
 }
 
 func (f FormBotClient) submitForm(ev *slack.MessageEvent, existingUserResource *UserResource) {
-	b, err := ioutil.ReadFile(fmt.Sprintf("/Users/madhav/%s", Eid))
+	b, err := ioutil.ReadFile(fmt.Sprintf("/tmp/%s", existingUserResource.FormName))
 	if err != nil {
 		f.showError(fmt.Sprintf("ERROR in Reading saved input form. %v \n", err), ev.Channel)
 	}

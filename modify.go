@@ -10,9 +10,9 @@ import (
 	"github.com/nlopes/slack"
 )
 
-func (f FormBotClient) readAnsAndDisplay(eventChannel string) (int, error) {
+func (f FormBotClient) readAnsAndDisplay(eventChannel string, formName string) (int, error) {
 	answerArray := make([]slack.AttachmentField, 0, len(questions))
-	if file, err := os.Open(fmt.Sprintf("/Users/madhav/%s", Eid)); err == nil {
+	if file, err := os.Open(fmt.Sprintf("/tmp/%s", formName)); err == nil {
 		defer file.Close()
 		var replacer = strings.NewReplacer("$", " ")
 		scanner := bufio.NewScanner(file)

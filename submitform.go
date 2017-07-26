@@ -25,6 +25,8 @@ type InteractiveMessageRequest struct {
 func SubmitForm(evt json.RawMessage, ctx *runtime.Context) (interface{}, error) {
 	var user map[string]string
 
+	api := bluele.New("xoxb-207019286820-sRB8Ypxgj7MZWscKnVTAye47")
+
 	json.Unmarshal(evt, &user)
 
 	i := strings.Index(user["body"], "=")
@@ -58,7 +60,6 @@ func SubmitForm(evt json.RawMessage, ctx *runtime.Context) (interface{}, error) 
 			AsUser:      true,
 			Attachments: showOutputAttachement,
 		}
-		api := bluele.New("xoxb-207019286820-sRB8Ypxgj7MZWscKnVTAye47")
 		err = api.ChatPostMessage(channel, fmt.Sprintf("<@%s> Submitted Form", userName), &chatPostOpts)
 		if err != nil {
 			fmt.Printf("Error while posting to slack chat %s\n", err.Error())
@@ -70,7 +71,6 @@ func SubmitForm(evt json.RawMessage, ctx *runtime.Context) (interface{}, error) 
 		return s, nil
 	} else if attachmentAction.Name == "Select" {
 
-		api := bluele.New("xoxb-207019286820-sRB8Ypxgj7MZWscKnVTAye47")
 		questionToModify := attachmentAction.SelectedOptions[0].Value
 		questionNumber, err := strconv.Atoi(questionToModify)
 		if err != nil {

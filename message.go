@@ -49,17 +49,17 @@ func (formBotClient FormBotClient) startForm(ev *slack.MessageEvent, userFullMap
 	userChannel := make(chan *slack.MessageEvent)
 	modifyChannel := make(chan *slack.MessageEvent)
 	inputStringLength := strings.Split(ev.Text, " ")
-	Eid = inputStringLength[2]
+	Eid := inputStringLength[2]
 	existingUserResource, ok := userFullMap[ev.User][Eid]
 
 	if !ok {
 		innerMap := make(map[string]*UserResource)
 		// 1) Check if file exists or a new file
-		if _, err := os.Stat(fmt.Sprintf("/Users/madhav/%s", Eid)); err != nil {
+		if _, err := os.Stat(fmt.Sprintf("/tmp/%s", Eid)); err != nil {
 			if os.IsNotExist(err) {
 				fmt.Println("Inside File does not exists")
 				// file does not exist
-				file, err := os.Create(fmt.Sprintf("/Users/madhav/%s", Eid))
+				file, err := os.Create(fmt.Sprintf("/tmp/%s", Eid))
 				if err != nil {
 					formBotClient.showError(fmt.Sprintf("ERROR in creating a file. %v \n", err), ev.Channel)
 				}
@@ -77,11 +77,11 @@ func (formBotClient FormBotClient) startForm(ev *slack.MessageEvent, userFullMap
 			}
 		} else {
 			fmt.Println("File already exists")
-			lastAnsSaved, err := formBotClient.readAnsAndDisplay(ev.Channel)
+			lastAnsSaved, err := formBotClient.readAnsAndDisplay(ev.Channel, Eid)
 			if err != nil {
 				formBotClient.showError(fmt.Sprintf("Form already exists. Something went wrong in displaying it. %v \n", err), ev.Channel)
 			}
-			file, err := os.OpenFile(fmt.Sprintf("/Users/madhav/%s", Eid), os.O_APPEND|os.O_WRONLY, 0600)
+			file, err := os.OpenFile(fmt.Sprintf("/tmp/%s", Eid), os.O_APPEND|os.O_WRONLY, 0600)
 			if err != nil {
 				formBotClient.showError(fmt.Sprintf("Form already exists. Something went wrong in opening it. %v \n", err), ev.Channel)
 			}
@@ -100,7 +100,7 @@ func (formBotClient FormBotClient) startForm(ev *slack.MessageEvent, userFullMap
 		go formBotClient.startUserRoutine(userRoutineMap[ev.User], ev.Channel)
 	} else {
 		fmt.Println("Existing user restoring older form")
-		lastQuestionAsked, err := formBotClient.readAnsAndDisplay(ev.Channel)
+		lastQuestionAsked, err := formBotClient.readAnsAndDisplay(ev.Channel, existingUserResource.FormName)
 		if err != nil {
 			formBotClient.showError(fmt.Sprintf("Form already exists. Something went wrong in displaying it. %v \n", err), ev.Channel)
 		}
@@ -197,7 +197,7 @@ func (f FormBotClient) modifyAnswerRoutine(modifyQuestion int, existingUserResou
 	}
 	fmt.Println(n)
 	fmt.Println("Existing user restoring older form")
-	lastQuestionAsked, err := f.readAnsAndDisplay(modifyAnsEvent.Channel)
+	lastQuestionAsked, err := f.readAnsAndDisplay(modifyAnsEvent.Channel, existingUserResource.FormName)
 	if err != nil {
 		f.showError(fmt.Sprintf("Form already exists. Something went wrong in displaying it. %v \n", err), channel)
 	}
