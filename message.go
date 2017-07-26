@@ -4,12 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	//"bufio"
 	"os"
 
-	"github.com/nlopes/slack"
-	//"google.golang.org/appengine/file"
 	"strconv"
+
+	"github.com/nlopes/slack"
 )
 
 func (formBotClient FormBotClient) startUserRoutine(existingUserResource *UserResource, channel string) {
