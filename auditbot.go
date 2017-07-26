@@ -12,7 +12,7 @@ import (
 	"github.com/nlopes/slack"
 )
 
-var questions = []string{"q1", "q2", "q3", "q4"}
+var questions = []string{"Team Name", "PO Name", "Prod Release Date", "Business Justification"}
 
 type Header struct {
 	ContentType string `json:"Content-Type"`
@@ -108,7 +108,13 @@ Loop:
 				close(existingUserResource[formName].ModifyChannel)
 				delete(existingUserResource, formName)
 				delete(userRoutineMap, user[2:len(user)-1])
-				// Delete File part is left
+
+				var err = os.Remove(fmt.Sprintf("/tmp/%s", formName))
+				if err != nil {
+					formBotClient.showError(fmt.Sprintf("ERROR deleting the file. %v \n", err), ev.Channel)
+				}
+				fmt.Println("==> done deleting file")
+
 				fmt.Println(userFullMap)
 			} else if strings.Contains(ev.Text, "Modify Question") {
 				// This is invoked by the formbot, to modify the question specified by user in the above step

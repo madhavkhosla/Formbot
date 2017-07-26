@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"log"
 	"strings"
@@ -12,10 +13,15 @@ import (
 
 	"strconv"
 
+	"crypto/aes"
+	"crypto/cipher"
+
 	bluele "github.com/bluele/slack"
 	"github.com/eawsy/aws-lambda-go/service/lambda/runtime"
 	"github.com/nlopes/slack"
 )
+
+var key = []byte("123456789012345678901234")
 
 type InteractiveMessageRequest struct {
 	Actions []slack.AttachmentAction
@@ -95,4 +101,29 @@ func SubmitForm(evt json.RawMessage, ctx *runtime.Context) (interface{}, error) 
 
 	}
 	return nil, errors.New("Button selected not correct")
+}
+
+// decrypt from base64 to decrypted string
+func decrypt(key []byte, cryptoText string) string {
+	ciphertext, _ := base64.URLEncoding.DecodeString(cryptoText)
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		panic(err)
+	}
+
+	// The IV needs to be unique, but not secure. Therefore it's common to
+	// include it at the beginning of the ciphertext.
+	if len(ciphertext) < aes.BlockSize {
+		panic("ciphertext too short")
+	}
+	iv := ciphertext[:aes.BlockSize]
+	ciphertext = ciphertext[aes.BlockSize:]
+
+	stream := cipher.NewCFBDecrypter(block, iv)
+
+	// XORKeyStream can work in-place if the two arguments are the same.
+	stream.XORKeyStream(ciphertext, ciphertext)
+
+	return fmt.Sprintf("%s", ciphertext)
 }
