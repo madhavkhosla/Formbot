@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"strings"
 
 	"fmt"
@@ -33,13 +34,13 @@ func SubmitForm(evt json.RawMessage, ctx *runtime.Context) (interface{}, error) 
 	newStr := user["body"][i+1:]
 	str, err := url.QueryUnescape(newStr)
 	if err != nil {
-		fmt.Printf("Error while decoding the post request %s \n", err.Error())
+		log.Printf("Error while decoding the post request %s \n", err.Error())
 	}
-	fmt.Println(str)
+	log.Printf(str)
 	interactiveRequestMessage := InteractiveMessageRequest{}
 	err = json.Unmarshal([]byte(str), &interactiveRequestMessage)
 	if err != nil {
-		fmt.Printf("Error while un-marshaling request %s \n", err.Error())
+		log.Printf("Error while un-marshaling request %s \n", err.Error())
 	}
 	attachmentAction := interactiveRequestMessage.Actions[0]
 	if attachmentAction.Name == "Submit" {
@@ -62,7 +63,7 @@ func SubmitForm(evt json.RawMessage, ctx *runtime.Context) (interface{}, error) 
 		}
 		err = api.ChatPostMessage(channel, fmt.Sprintf("<@%s> Submitted Form", userName), &chatPostOpts)
 		if err != nil {
-			fmt.Printf("Error while posting to slack chat %s\n", err.Error())
+			log.Printf("Error while posting to slack chat %s\n", err.Error())
 		}
 		s := SlackResponse{StatusCode: 200,
 			Headers: Header{ContentType: "application/json"},
@@ -74,7 +75,7 @@ func SubmitForm(evt json.RawMessage, ctx *runtime.Context) (interface{}, error) 
 		questionToModify := attachmentAction.SelectedOptions[0].Value
 		questionNumber, err := strconv.Atoi(questionToModify)
 		if err != nil {
-			fmt.Println(err.Error())
+			log.Println(err.Error())
 		}
 		channel := interactiveRequestMessage.Channel.ID
 		userName := interactiveRequestMessage.User.ID
@@ -84,7 +85,7 @@ func SubmitForm(evt json.RawMessage, ctx *runtime.Context) (interface{}, error) 
 
 		err = api.ChatPostMessage(channel, fmt.Sprintf("<@%s> Modify Question %d", userName, questionNumber+1), chatPostOpts)
 		if err != nil {
-			fmt.Printf("Error while posting to slack chat %s\n", err.Error())
+			log.Printf("Error while posting to slack chat %s\n", err.Error())
 		}
 		s := SlackResponse{StatusCode: 200,
 			Headers: Header{ContentType: "application/json"},
