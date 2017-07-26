@@ -100,7 +100,7 @@ func (formBotClient FormBotClient) startForm(ev *slack.MessageEvent, userFullMap
 		go formBotClient.startUserRoutine(userRoutineMap[ev.User], ev.Channel)
 	} else {
 		fmt.Println("Existing user restoring older form")
-		lastQuestionAsked, err := formBotClient.readAnsAndDisplay(ev.Channel, existingUserResource.FormName)
+		lastQuestionAsked, err := formBotClient.readAnsAndDisplay(ev.Channel, Eid)
 		if err != nil {
 			formBotClient.showError(fmt.Sprintf("Form already exists. Something went wrong in displaying it. %v \n", err), ev.Channel)
 		}
