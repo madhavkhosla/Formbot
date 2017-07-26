@@ -27,7 +27,7 @@ func (f FormBotClient) readAnsAndDisplay(eventChannel string) (int, error) {
 
 		fmt.Println(answerArray)
 		if err = scanner.Err(); err != nil {
-			fmt.Errorf("%s", err)
+			f.showError(fmt.Sprintf("ERROR in saving the user input. %v \n", err), eventChannel)
 		}
 		postMessgeParameters := slack.NewPostMessageParameters()
 		postMessgeParameters.AsUser = true
