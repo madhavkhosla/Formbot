@@ -8,6 +8,8 @@ import (
 	"io/ioutil"
 	"strconv"
 
+	"bufio"
+
 	"github.com/eawsy/aws-lambda-go/service/lambda/runtime"
 	"github.com/nlopes/slack"
 )
@@ -88,7 +90,7 @@ Loop:
 				// Modify command invoked by user to modify a particular question
 				existingUserResource := userRoutineMap[ev.User]
 				if existingUserResource != nil {
-					formBotClient.modifyMenu(ev)
+					formBotClient.modifyMenu(ev, existingUserResource)
 				} else {
 					rtm.SendMessage(rtm.NewOutgoingMessage(
 						fmt.Sprintf("Please start form before modifying answers"), ev.Channel))
@@ -215,12 +217,19 @@ func (f FormBotClient) submitForm(ev *slack.MessageEvent, existingUserResource *
 
 }
 
-func (f FormBotClient) modifyMenu(ev *slack.MessageEvent) {
+func (f FormBotClient) modifyMenu(ev *slack.MessageEvent, existingUserResource *UserResource) {
 
 	questionOptions := []slack.AttachmentActionOption{}
-
-	for i, q := range questions {
-		questionOptions = append(questionOptions, slack.AttachmentActionOption{Text: q, Value: strconv.Itoa(i)})
+	lc, err := lineCount(fmt.Sprintf("/tmp/%s", existingUserResource.FormName))
+	if err != nil {
+		f.showError(fmt.Sprintf("ERROR in finding form filled so far. %v \n", err), ev.Channel)
+		return
+	}
+	//for i, q := range questions {
+	//	questionOptions = append(questionOptions, slack.AttachmentActionOption{Text: q, Value: strconv.Itoa(i)})
+	//}
+	for i := 0; int64(i) < lc; i++ {
+		questionOptions = append(questionOptions, slack.AttachmentActionOption{Text: questions[i], Value: strconv.Itoa(i)})
 	}
 
 	attachment := slack.Attachment{
@@ -247,4 +256,18 @@ func (f FormBotClient) modifyMenu(ev *slack.MessageEvent) {
 	if _, _, err := f.rtm.PostMessage(ev.Channel, "", params); err != nil {
 		f.showError(fmt.Sprintf("ERROR in Posting message to slack. %v \n", err), ev.Channel)
 	}
+}
+
+func lineCount(filename string) (int64, error) {
+	lc := int64(0)
+	f, err := os.Open(filename)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	s := bufio.NewScanner(f)
+	for s.Scan() {
+		lc++
+	}
+	return lc, s.Err()
 }
