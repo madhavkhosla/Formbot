@@ -26,7 +26,7 @@ type InteractiveMessageRequest struct {
 func SubmitForm(evt json.RawMessage, ctx *runtime.Context) (interface{}, error) {
 	var user map[string]string
 
-	api := bluele.New("xoxb-207019286820-sRB8Ypxgj7MZWscKnVTAye47")
+	api := bluele.New("SLACK_TOKEN")
 
 	json.Unmarshal(evt, &user)
 
