@@ -64,7 +64,7 @@ Loop:
 		switch ev := msg.Data.(type) {
 
 		case *slack.PresenceChangeEvent:
-			fmt.Printf("Presense Change :%s %s \n", ev.User, ev.Presence)
+			fmt.Printf("Presence Change :%s %s \n", ev.User, ev.Presence)
 
 		case *slack.ConnectedEvent:
 			fmt.Println("Connection counter:", ev.ConnectionCount)
