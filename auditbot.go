@@ -63,6 +63,9 @@ Loop:
 		fmt.Println("Event Received: ")
 		switch ev := msg.Data.(type) {
 
+		case *slack.PresenceChangeEvent:
+			fmt.Printf("Presense Change :%s %s \n", ev.User, ev.Presence)
+
 		case *slack.ConnectedEvent:
 			fmt.Println("Connection counter:", ev.ConnectionCount)
 
@@ -225,9 +228,9 @@ func (f FormBotClient) modifyMenu(ev *slack.MessageEvent, existingUserResource *
 		f.showError(fmt.Sprintf("ERROR in finding form filled so far. %v \n", err), ev.Channel)
 		return
 	}
-	//for i, q := range questions {
-	//	questionOptions = append(questionOptions, slack.AttachmentActionOption{Text: q, Value: strconv.Itoa(i)})
-	//}
+	if lc == 0 {
+		lc = 1
+	}
 	for i := 0; int64(i) < lc; i++ {
 		questionOptions = append(questionOptions, slack.AttachmentActionOption{Text: questions[i], Value: strconv.Itoa(i)})
 	}
