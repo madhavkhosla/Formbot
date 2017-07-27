@@ -3,19 +3,18 @@ package main
 import (
 	"fmt"
 	"os"
-
 	"strings"
 
 	"io/ioutil"
-
 	"strconv"
+
+	"bufio"
 
 	"github.com/eawsy/aws-lambda-go/service/lambda/runtime"
 	"github.com/nlopes/slack"
 )
 
-var questions = []string{"q1", "q2", "q3", "q4"}
-var Eid string
+var questions = []string{"Team Name", "PO Name", "Prod Release Date", "Business Justification"}
 
 type Header struct {
 	ContentType string `json:"Content-Type"`
@@ -29,8 +28,6 @@ type SlackResponse struct {
 
 type FormBotClient struct {
 	rtm *slack.RTM
-	////ev         *slack.MessageEvent
-	//infoUserId string
 }
 
 type Set struct {
@@ -66,6 +63,9 @@ Loop:
 		fmt.Println("Event Received: ")
 		switch ev := msg.Data.(type) {
 
+		case *slack.PresenceChangeEvent:
+			fmt.Printf("Presence Change :%s %s \n", ev.User, ev.Presence)
+
 		case *slack.ConnectedEvent:
 			fmt.Println("Connection counter:", ev.ConnectionCount)
 
@@ -74,10 +74,12 @@ Loop:
 			fmt.Printf("Message: %v\n", ev.Msg.Text)
 
 			// Form bot help commands
-			formBotClient.helpCommands(ev)
+			helpCommandInvoked := formBotClient.helpCommands(ev)
+			if helpCommandInvoked {
+				continue
+			}
 
 			prefix := fmt.Sprintf("<@%s>", formBotClient.rtm.GetInfo().User.ID)
-			fmt.Printf("%s-%s\n", ev.User, formBotClient.rtm.GetInfo().User.ID)
 
 			if ev.User != formBotClient.rtm.GetInfo().User.ID && strings.HasPrefix(ev.Text, fmt.Sprintf("%s create", prefix)) {
 				// Input create command not correct
@@ -85,11 +87,42 @@ Loop:
 				if !check {
 					continue Loop
 				}
+				// Create command starts a form
 				go formBotClient.startForm(ev, userFullMap, userRoutineMap)
 			} else if ev.User != formBotClient.rtm.GetInfo().User.ID && ev.Text == fmt.Sprintf("%s modify", prefix) {
-				fmt.Println("INSIDE THE MODIFY IF 1")
-				formBotClient.modifyMenu(ev)
+				// Modify command invoked by user to modify a particular question
+				existingUserResource := userRoutineMap[ev.User]
+				if existingUserResource != nil {
+					formBotClient.modifyMenu(ev, existingUserResource)
+				} else {
+					rtm.SendMessage(rtm.NewOutgoingMessage(
+						fmt.Sprintf("Please start form before modifying answers"), ev.Channel))
+					continue
+				}
+			} else if strings.Contains(ev.Text, "Submitted Form") {
+				// This is invoked by the formbot, to submit the form
+				inputStringLength := strings.Split(ev.Text, " ")
+				user := inputStringLength[0]
+				fmt.Println(user)
+				formName := userRoutineMap[user[2:len(user)-1]].FormName
+				existingUserResource := userFullMap[user[2:len(user)-1]]
+				existingUserResource[formName].QuitChannel <- 0
+				close(existingUserResource[formName].SyncChannel)
+				close(existingUserResource[formName].UserChannel)
+				close(existingUserResource[formName].QuitChannel)
+				close(existingUserResource[formName].ModifyChannel)
+				delete(existingUserResource, formName)
+				delete(userRoutineMap, user[2:len(user)-1])
+
+				var err = os.Remove(fmt.Sprintf("/tmp/%s", formName))
+				if err != nil {
+					formBotClient.showError(fmt.Sprintf("ERROR deleting the file. %v \n", err), ev.Channel)
+				}
+				fmt.Println("==> done deleting file")
+
+				fmt.Println(userFullMap)
 			} else if strings.Contains(ev.Text, "Modify Question") {
+				// This is invoked by the formbot, to modify the question specified by user in the above step
 				inputStringLength := strings.Split(ev.Text, " ")
 				user := inputStringLength[0]
 				fmt.Println(user)
@@ -99,7 +132,7 @@ Loop:
 			} else if ev.User != formBotClient.rtm.GetInfo().User.ID && len(ev.User) > 0 {
 				if len(ev.Text) > 100 {
 					rtm.SendMessage(rtm.NewOutgoingMessage(
-						fmt.Sprintf("Input should be less than 100 chars. Try Again"), ev.Channel))
+						fmt.Sprintf("User input should be less than 100 chars. Try Again"), ev.Channel))
 					continue
 				}
 				existingUserResource := userRoutineMap[ev.User]
@@ -128,61 +161,40 @@ func (f FormBotClient) sendQuestions(ev *slack.MessageEvent, c chan int,
 	userFullMap map[string]map[string]*UserResource, startI int, Eid string) {
 
 	for i := startI; i < len(questions); {
-		f.rtm.SendMessage(f.rtm.NewOutgoingMessage(fmt.Sprintf("%s", questions[i]), ev.Channel))
+		postMessgeParameters := slack.NewPostMessageParameters()
+		postMessgeParameters.Attachments = []slack.Attachment{
+			{
+				Title: questions[i],
+				Color: "#7CD197",
+			},
+		}
+		f.rtm.PostMessage(ev.Channel, "Question", postMessgeParameters)
 		index := <-c
 		if index == -1 {
 			i = i + 1
 		} else {
-			fmt.Printf("Index is %v", index)
+			fmt.Printf("Index is %v\n", index)
 			i = index
 		}
 	}
-	b, err := ioutil.ReadFile(fmt.Sprintf("/Users/madhav/%s", Eid))
-	if err != nil {
-		fmt.Print(err)
-	}
-	fmt.Println(len(b))
-	ansFile := string(b)
-	fmt.Println(fmt.Sprintf("FS%sFE", ansFile))
-	answers := strings.Split(ansFile, "\n")
-	fmt.Println(answers[0])
 	existingUserResource := userFullMap[ev.User]
-	existingUserResource[Eid].QuitChannel <- 0
-	close(c)
-	close(existingUserResource[Eid].UserChannel)
-	close(existingUserResource[Eid].QuitChannel)
-	delete(existingUserResource, Eid)
-	// Delete File part is left
-	fmt.Println(userFullMap)
-	postMessgeParameters := slack.NewPostMessageParameters()
-	postMessgeParameters.AsUser = true
-	postMessgeParameters.Attachments = []slack.Attachment{
-		{
-			Title: "Do you want to submit the intake form",
-			Color: "#7CD197",
-			Actions: []slack.AttachmentAction{
-				{
-					Name:  "Submit",
-					Text:  "Submit",
-					Type:  "button",
-					Value: fmt.Sprintf("%s", ansFile),
-				},
-			},
-			CallbackID: "callbackId",
-		},
-	}
-	f.rtm.PostMessage(ev.Channel, "", postMessgeParameters)
+	f.submitForm(ev, existingUserResource[Eid])
 }
 
 func (f FormBotClient) submitForm(ev *slack.MessageEvent, existingUserResource *UserResource) {
-	b, err := ioutil.ReadFile(fmt.Sprintf("/Users/madhav/%s", Eid))
+	b, err := ioutil.ReadFile(fmt.Sprintf("/tmp/%s", existingUserResource.FormName))
 	if err != nil {
-		fmt.Print(err)
+		f.showError(fmt.Sprintf("ERROR in Reading saved input form. %v \n", err), ev.Channel)
 	}
 	ansFile := string(b)
 	fmt.Println(fmt.Sprintf("%s", ansFile))
 	postMessgeParameters := slack.NewPostMessageParameters()
 	postMessgeParameters.AsUser = true
+	questionOptions := []slack.AttachmentActionOption{}
+
+	for i, q := range questions {
+		questionOptions = append(questionOptions, slack.AttachmentActionOption{Text: q, Value: strconv.Itoa(i)})
+	}
 	postMessgeParameters.Attachments = []slack.Attachment{
 		{
 			Title: "Do you want to submit the intake form",
@@ -194,6 +206,12 @@ func (f FormBotClient) submitForm(ev *slack.MessageEvent, existingUserResource *
 					Type:  "button",
 					Value: fmt.Sprintf("%s", ansFile),
 				},
+				{
+					Name:    "Select",
+					Type:    "select",
+					Text:    "Modify Question",
+					Options: questionOptions,
+				},
 			},
 			CallbackID: "callbackId",
 		},
@@ -202,22 +220,30 @@ func (f FormBotClient) submitForm(ev *slack.MessageEvent, existingUserResource *
 
 }
 
-func (f FormBotClient) modifyMenu(ev *slack.MessageEvent) {
+func (f FormBotClient) modifyMenu(ev *slack.MessageEvent, existingUserResource *UserResource) {
 
 	questionOptions := []slack.AttachmentActionOption{}
-
-	for i, q := range questions {
-		questionOptions = append(questionOptions, slack.AttachmentActionOption{Text: q, Value: strconv.Itoa(i)})
+	lc, err := lineCount(fmt.Sprintf("/tmp/%s", existingUserResource.FormName))
+	if err != nil {
+		f.showError(fmt.Sprintf("ERROR in finding form filled so far. %v \n", err), ev.Channel)
+		return
+	}
+	if lc == 0 {
+		lc = 1
+	}
+	for i := 0; int64(i) < lc; i++ {
+		questionOptions = append(questionOptions, slack.AttachmentActionOption{Text: questions[i], Value: strconv.Itoa(i)})
 	}
 
 	attachment := slack.Attachment{
-		Text:       "Modify Answer",
+		Text:       "Choose the question to modify",
 		Color:      "#7CD197",
 		CallbackID: "menuCallbackId",
 		Actions: []slack.AttachmentAction{
 			{
 				Name:    "Select",
 				Type:    "select",
+				Text:    "Modify Question",
 				Options: questionOptions,
 			},
 		},
@@ -231,6 +257,20 @@ func (f FormBotClient) modifyMenu(ev *slack.MessageEvent) {
 	}
 
 	if _, _, err := f.rtm.PostMessage(ev.Channel, "", params); err != nil {
-		fmt.Errorf("failed to post message: %s", err)
+		f.showError(fmt.Sprintf("ERROR in Posting message to slack. %v \n", err), ev.Channel)
 	}
+}
+
+func lineCount(filename string) (int64, error) {
+	lc := int64(0)
+	f, err := os.Open(filename)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	s := bufio.NewScanner(f)
+	for s.Scan() {
+		lc++
+	}
+	return lc, s.Err()
 }

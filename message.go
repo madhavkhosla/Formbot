@@ -4,15 +4,14 @@ import (
 	"fmt"
 	"strings"
 
-	//"bufio"
 	"os"
 
-	"github.com/nlopes/slack"
-	//"google.golang.org/appengine/file"
 	"strconv"
+
+	"github.com/nlopes/slack"
 )
 
-func (formBotClient FormBotClient) startUserRoutine(existingUserResource *UserResource) {
+func (formBotClient FormBotClient) startUserRoutine(existingUserResource *UserResource, channel string) {
 	for {
 		select {
 		case userEvent := <-existingUserResource.UserChannel:
@@ -29,12 +28,10 @@ func (formBotClient FormBotClient) startUserRoutine(existingUserResource *UserRe
 			outputArray[99] = '\n'
 			n3, err := existingUserResource.File.Write(outputArray)
 			if err != nil {
-				fmt.Errorf(err.Error())
+				formBotClient.showError(fmt.Sprintf("ERROR in saving the user input. %v \n", err), channel)
 			}
-
 			fmt.Println(existingUserResource)
 			fmt.Printf("wrote %s  %d bytes\n", userEvent.Text, n3)
-			//existingUserResource.Writer.Flush()
 			existingUserResource.SyncChannel <- -1
 		case <-existingUserResource.QuitChannel:
 			fmt.Println("quit")
@@ -51,21 +48,20 @@ func (formBotClient FormBotClient) startForm(ev *slack.MessageEvent, userFullMap
 	userChannel := make(chan *slack.MessageEvent)
 	modifyChannel := make(chan *slack.MessageEvent)
 	inputStringLength := strings.Split(ev.Text, " ")
-	Eid = inputStringLength[2]
+	Eid := inputStringLength[2]
 	existingUserResource, ok := userFullMap[ev.User][Eid]
+
 	if !ok {
 		innerMap := make(map[string]*UserResource)
-		// File does not exist.
 		// 1) Check if file exists or a new file
-		if _, err := os.Stat(fmt.Sprintf("/Users/madhav/%s", Eid)); err != nil {
+		if _, err := os.Stat(fmt.Sprintf("/tmp/%s", Eid)); err != nil {
 			if os.IsNotExist(err) {
 				fmt.Println("Inside File does not exists")
 				// file does not exist
-				file, err := os.Create(fmt.Sprintf("/Users/madhav/%s", Eid))
+				file, err := os.Create(fmt.Sprintf("/tmp/%s", Eid))
 				if err != nil {
-					fmt.Errorf("ERROR in creating a file \n")
+					formBotClient.showError(fmt.Sprintf("ERROR in creating a file. %v \n", err), ev.Channel)
 				}
-				//w := bufio.NewWriter(file)
 				innerMap[Eid] = &UserResource{userChannel,
 					modifyChannel,
 					trigger,
@@ -80,15 +76,14 @@ func (formBotClient FormBotClient) startForm(ev *slack.MessageEvent, userFullMap
 			}
 		} else {
 			fmt.Println("File already exists")
-			lastAnsSaved, err := formBotClient.readAnsAndDisplay(ev.Channel)
+			lastAnsSaved, err := formBotClient.readAnsAndDisplay(ev.Channel, Eid)
 			if err != nil {
-				fmt.Errorf("Something went wrong when file already exists and starting form")
+				formBotClient.showError(fmt.Sprintf("Form already exists. Something went wrong in displaying it. %v \n", err), ev.Channel)
 			}
-			file, err := os.OpenFile(fmt.Sprintf("/Users/madhav/%s", Eid), os.O_APPEND|os.O_WRONLY, 0600)
+			file, err := os.OpenFile(fmt.Sprintf("/tmp/%s", Eid), os.O_APPEND|os.O_WRONLY, 0600)
 			if err != nil {
-				fmt.Errorf("ERROR in opening a file \n")
+				formBotClient.showError(fmt.Sprintf("Form already exists. Something went wrong in opening it. %v \n", err), ev.Channel)
 			}
-			//w := bufio.NewWriter(file)
 			innerMap[Eid] = &UserResource{userChannel,
 				modifyChannel,
 				trigger,
@@ -101,12 +96,12 @@ func (formBotClient FormBotClient) startForm(ev *slack.MessageEvent, userFullMap
 			fmt.Println(userFullMap)
 			go formBotClient.sendQuestions(ev, trigger, userFullMap, lastAnsSaved, Eid)
 		}
-		go formBotClient.startUserRoutine(userRoutineMap[ev.User])
+		go formBotClient.startUserRoutine(userRoutineMap[ev.User], ev.Channel)
 	} else {
 		fmt.Println("Existing user restoring older form")
-		lastQuestionAsked, err := formBotClient.readAnsAndDisplay(ev.Channel)
+		lastQuestionAsked, err := formBotClient.readAnsAndDisplay(ev.Channel, Eid)
 		if err != nil {
-			fmt.Printf("Something went wrong")
+			formBotClient.showError(fmt.Sprintf("Form already exists. Something went wrong in displaying it. %v \n", err), ev.Channel)
 		}
 		// If someone calls modify and then switches forms, when he comes back to first form
 		// Modify flag is removed.
@@ -116,50 +111,76 @@ func (formBotClient FormBotClient) startForm(ev *slack.MessageEvent, userFullMap
 			userRoutineMap[ev.User].SyncChannel <- lastQuestionAsked
 		}
 	}
-
 }
 
 func (f FormBotClient) invalidCreateCommand(ev *slack.MessageEvent) bool {
 	inputStringLength := strings.Split(ev.Text, " ")
 	if len(inputStringLength) != 3 {
-		f.rtm.SendMessage(f.rtm.NewOutgoingMessage(fmt.Sprintf("Invalid input command"), ev.Channel))
+
+		postMessgeParameters := slack.NewPostMessageParameters()
+		postMessgeParameters.Attachments = []slack.Attachment{
+			{
+				Title: "Incorrect input command for creating intake form",
+				Text:  "Please try the help command: @formbot help",
+				Color: "#7CD197",
+			},
+		}
+		f.rtm.PostMessage(ev.Channel, "", postMessgeParameters)
+
 		return false
 	}
 	return true
 }
 
-func (f FormBotClient) helpCommands(ev *slack.MessageEvent) {
+func (f FormBotClient) helpCommands(ev *slack.MessageEvent) bool {
 	botId := f.rtm.GetInfo().User.ID
 	prefix := fmt.Sprintf("<@%s>", botId)
 	if ev.User != botId && (ev.Text == prefix || ev.Text == fmt.Sprintf("%s help", prefix)) {
 		postMessgeParameters := slack.NewPostMessageParameters()
 		postMessgeParameters.Attachments = []slack.Attachment{
 			{
-				Title: "Command to start new intake form",
+				Title: "Command to start or restore an intake form",
 				Text:  "@formbot create [EID]",
+				Color: "#7CD197",
+			},
+			{
+				Title: "Command to modify a question once form is started",
+				Text:  "@formbot modify",
 				Color: "#7CD197",
 			},
 		}
 		f.rtm.PostMessage(ev.Channel, fmt.Sprintf("Formbot help commands"), postMessgeParameters)
+		return true
 	}
+	return false
 }
 
 func (f FormBotClient) updateAnswer(ev *slack.MessageEvent, existingUserResource *UserResource) {
 	inputStringLength := strings.Split(ev.Text, " ")
 	modifyQuestionString := inputStringLength[3]
 	modifyQuestion, err := strconv.Atoi(modifyQuestionString)
+	modifyQuestion = modifyQuestion - 1
 	if err != nil {
-		fmt.Errorf("Error in update Answer in converting question number to int")
+		f.showError(fmt.Sprintf("Error in update Answer in converting question number to int. %v \n", err), ev.Channel)
 	}
-	f.rtm.SendMessage(f.rtm.NewOutgoingMessage(fmt.Sprintf("%s", questions[modifyQuestion]), ev.Channel))
-	go f.modifyAnswerRoutine(modifyQuestion, existingUserResource)
+	postMessgeParameters := slack.NewPostMessageParameters()
+	postMessgeParameters.Attachments = []slack.Attachment{
+		{
+			Title: questions[modifyQuestion],
+			Color: "#7CD197",
+		},
+	}
+	f.rtm.PostMessage(ev.Channel, "Please provide answer for question", postMessgeParameters)
+
+	go f.modifyAnswerRoutine(modifyQuestion, existingUserResource, ev.Channel)
 }
 
-func (f FormBotClient) modifyAnswerRoutine(modifyQuestion int, existingUserResource *UserResource) {
+func (f FormBotClient) modifyAnswerRoutine(modifyQuestion int, existingUserResource *UserResource, channel string) {
 
 	modifyAnsEvent := <-existingUserResource.ModifyChannel
 
 	userInputArray := []byte(modifyAnsEvent.Text)
+	userInputArray = append(userInputArray, '$')
 	outputArray := make([]byte, 100)
 	for i := 0; i < 99; i++ {
 		if i > len(userInputArray)-1 {
@@ -171,13 +192,13 @@ func (f FormBotClient) modifyAnswerRoutine(modifyQuestion int, existingUserResou
 	outputArray[99] = '\n'
 	n, err := existingUserResource.File.WriteAt(outputArray, int64((modifyQuestion)*100))
 	if err != nil {
-		fmt.Errorf("%s", err.Error())
+		f.showError(fmt.Sprintf("ERROR in saving the updated user input. %v \n", err), channel)
 	}
 	fmt.Println(n)
 	fmt.Println("Existing user restoring older form")
-	lastQuestionAsked, err := f.readAnsAndDisplay(modifyAnsEvent.Channel)
+	lastQuestionAsked, err := f.readAnsAndDisplay(modifyAnsEvent.Channel, existingUserResource.FormName)
 	if err != nil {
-		fmt.Printf("Something went wrong")
+		f.showError(fmt.Sprintf("Form already exists. Something went wrong in displaying it. %v \n", err), channel)
 	}
 	existingUserResource.Modify = false
 	fmt.Println(lastQuestionAsked)
@@ -188,4 +209,16 @@ func (f FormBotClient) modifyAnswerRoutine(modifyQuestion int, existingUserResou
 	if lastQuestionAsked >= 0 {
 		existingUserResource.SyncChannel <- lastQuestionAsked
 	}
+}
+
+func (f FormBotClient) showError(errorString string, channel string) {
+	postMessgeParameters := slack.NewPostMessageParameters()
+	postMessgeParameters.Attachments = []slack.Attachment{
+		{
+			Title: "Following error occurred",
+			Text:  errorString,
+			Color: "#F35A00",
+		},
+	}
+	f.rtm.PostMessage(channel, "Please contact: Snozzberries team", postMessgeParameters)
 }
