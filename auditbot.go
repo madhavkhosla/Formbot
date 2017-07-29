@@ -135,12 +135,14 @@ Loop:
 						fmt.Sprintf("User input should be less than 100 chars. Try Again"), ev.Channel))
 					continue
 				}
-				existingUserResource := userRoutineMap[ev.User]
-				if existingUserResource.Modify {
-					existingUserResource.ModifyChannel <- ev
-					continue
+				existingUserResource, ok := userRoutineMap[ev.User]
+				if ok {
+					if existingUserResource.Modify {
+						existingUserResource.ModifyChannel <- ev
+						continue
+					}
+					existingUserResource.UserChannel <- ev
 				}
-				existingUserResource.UserChannel <- ev
 			}
 
 		case *slack.RTMError:
