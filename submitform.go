@@ -12,6 +12,7 @@ import (
 
 	"strconv"
 
+	"github.com/andygrunwald/go-jira"
 	bluele "github.com/bluele/slack"
 	"github.com/eawsy/aws-lambda-go/service/lambda/runtime"
 	"github.com/nlopes/slack"
@@ -44,6 +45,7 @@ func SubmitForm(evt json.RawMessage, ctx *runtime.Context) (interface{}, error) 
 	}
 	attachmentAction := interactiveRequestMessage.Actions[0]
 	if attachmentAction.Name == "Submit" {
+
 		answers := strings.Split(attachmentAction.Value, "$")
 		showOutput := make([]Set, 0, len(questions))
 		showOutputAttachement := make([]*bluele.Attachment, 0, len(questions))
@@ -65,6 +67,41 @@ func SubmitForm(evt json.RawMessage, ctx *runtime.Context) (interface{}, error) 
 		if err != nil {
 			log.Printf("Error while posting to slack chat %s\n", err.Error())
 		}
+
+		jiraClient, err := jira.NewClient(nil, "https://madhav-test.atlassian.net")
+		if err != nil {
+			log.Println(err.Error())
+		}
+
+		res, err := jiraClient.Authentication.AcquireSessionCookie("madhavnkhosla@gmail.com", "maserati273")
+		if err != nil || res == false {
+			fmt.Printf("Result: %v\n", res)
+			log.Println(err.Error())
+		}
+		out, err := json.Marshal(showOutput)
+		if err != nil {
+			log.Println(err.Error())
+		}
+		i := jira.Issue{
+			Fields: &jira.IssueFields{
+				Assignee: &jira.User{
+					Name: "admin",
+				},
+				Description: string(out),
+				Type: jira.IssueType{
+					Name: "Story",
+				},
+				Project: jira.Project{
+					Key: "FOR",
+				},
+				Summary: "Intake Form",
+			},
+		}
+		issue, _, err := jiraClient.Issue.Create(&i)
+		if err != nil {
+			log.Println(err.Error())
+		}
+		fmt.Println(issue)
 		s := SlackResponse{StatusCode: 200,
 			Headers: Header{ContentType: "application/json"},
 			Body:    ""}
