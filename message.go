@@ -107,6 +107,10 @@ func (formBotClient FormBotClient) startForm(ev *slack.MessageEvent, userFullMap
 		// Modify flag is removed.
 		existingUserResource.Modify = false
 		userRoutineMap[ev.User] = existingUserResource
+		if lastQuestionAsked >= len(questions) {
+			formBotClient.submitForm(ev, existingUserResource)
+			return
+		}
 		if lastQuestionAsked >= 0 {
 			userRoutineMap[ev.User].SyncChannel <- lastQuestionAsked
 		}
